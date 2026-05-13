@@ -28,7 +28,7 @@ from omni_bot_sdk.services.functional.dat_decrypt_service import DatDecryptServi
 from omni_bot_sdk.services import NewFriendCheckService
 from omni_bot_sdk.services.functional.weixin_status_service import WeixinStatusService
 from omni_bot_sdk.utils.logging_setup import setup_logging
-from omni_bot_sdk.utils.helpers import ensure_dir_exists
+from omni_bot_sdk.utils.helpers import ensure_dir_exists, get_runtime_images_dir
 
 
 class Bot:
@@ -49,7 +49,7 @@ class Bot:
         """
         初始化Bot对象，仅完成依赖注入和对象组装，不执行耗时操作。
         """
-        ensure_dir_exists("runtime_images")
+        get_runtime_images_dir()  # 确保 runtime_images 目录存在
         self.config: Config = Config(config_path)
         setup_logging(
             log_dir=self.config.get("logging.path", "logs"),
@@ -66,15 +66,20 @@ class Bot:
         self._status_callbacks = []  # 状态变更回调列表
 
         # 用户服务与用户信息初始化
-        self.user_service: UserService = UserService(self.config.get("dbkey"))
+        # dbkey 直接从传入的配置文件读取
+        dbkey = self.config.get("dbkey")
+        self.logger.info(f"配置文件 dbkey: {'已设置' if dbkey else '未设置'}")
+        self.user_service: UserService = UserService(dbkey)
         self.user_info: UserInfo = self.user_service.get_user_info()
-        allow_versions = ["4.0.6.33"]
+        # 版本检查 - 放宽限制，只记录警告不退出
+        # WeChat 4.0 的 WeChatAppEx.exe 内部版本号如 2.4.1.19481 也接受
+        allow_versions = ["4.0.6.33", "2.4.1.19481"]
         if self.user_info.version not in allow_versions:
-            self.logger.error(
-                f"当前微信版本不在支持范围内,目前支持的版本包括：{','.join(allow_versions)}"
+            self.logger.warning(
+                f"当前微信版本 ({self.user_info.version}) 不在官方支持列表中 ({','.join(allow_versions)})，部分功能可能不稳定"
             )
-            self.logger.info("您可以前往：https://github.com/cscnk52/wechat-windows-versions/releases 下载历史版本微信")
-            exit(1)
+            # 不再退出，继续运行
+            # exit(1)
         # 数据库服务初始化（需最先初始化）
         self.db: DatabaseService = DatabaseService(self.user_service)
         # RPA相关组件初始化
@@ -233,7 +238,14 @@ class Bot:
 
         # 初始化主聊天窗口
         self.logger.info("Initializing main chat window...")
+        max_init_retries = 10
+        init_retry_count = 0
         while not self.window_manager.init_chat_window():
+            init_retry_count += 1
+            if init_retry_count >= max_init_retries:
+                self.logger.error(f"初始化聊天窗口失败，已达到最大重试次数 {max_init_retries}")
+                # 不再阻塞，继续启动其他服务
+                break
             self.logger.warning(
                 "Failed to initialize chat window, retrying in 2 seconds..."
             )

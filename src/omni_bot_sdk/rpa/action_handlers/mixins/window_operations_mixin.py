@@ -3,7 +3,7 @@ from typing import Tuple
 
 import pyautogui
 from omni_bot_sdk.rpa.window_manager import WindowTypeEnum
-from omni_bot_sdk.utils.helpers import get_center_point
+from omni_bot_sdk.utils.helpers import get_center_point, get_runtime_images_path
 from omni_bot_sdk.utils.mouse import human_like_mouse_move
 
 
@@ -43,7 +43,7 @@ class WindowOperationsMixin:
         try:
             region = self.get_window_region(menu_window)
             screenshot = self.controller.image_processor.take_screenshot(
-                region=region, save_path="runtime_images/menu.png"
+                region=region, save_path=get_runtime_images_path("menu.png")
             )
             # 使用OCR查找菜单项
             formatted_results = self.ocr_processor.process_image(image=screenshot)

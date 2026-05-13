@@ -105,8 +105,26 @@ class ProcessorService:
         核心改动：不再直接处理，而是提交给异步执行器。
         """
         try:
+            self.logger.info(f"[Processor] 开始处理消息: table={message[0] if message else 'None'}")
+            # 调试：打印消息结构
+            if message and len(message) >= 2:
+                self.logger.debug(f"[Processor] message[0]={message[0]}, message[1] type={type(message[1])}, len={len(message[1]) if hasattr(message[1], '__len__') else 'N/A'}")
             message_obj = self.message_factory_service.create_message(message)
             if message_obj:
+                # 使用 real_sender_name 或 content 属性
+                sender_name = getattr(message_obj, 'real_sender_name', '') or getattr(message_obj, 'sender_display_name', '')
+                # Handle different message types - some don't have 'content' attribute
+                if hasattr(message_obj, 'content') and message_obj.content:
+                    content_preview = message_obj.content[:50]
+                elif hasattr(message_obj, 'audio_text'):  # AudioMessage
+                    content_preview = f"[语音] {message_obj.audio_text[:30] if message_obj.audio_text else ''}"
+                elif hasattr(message_obj, 'description'):  # EmojiMessage
+                    content_preview = f"[表情] {message_obj.description[:30] if message_obj.description else ''}"
+                elif hasattr(message_obj, 'file_name'):  # FileMessage/ImageMessage
+                    content_preview = f"[文件] {message_obj.file_name[:30] if message_obj.file_name else ''}"
+                else:
+                    content_preview = f"[{message_obj.type_name}]"
+                self.logger.info(f"[Processor] 消息对象创建成功: sender={sender_name}, content={content_preview}")
                 context = {
                     "message": message_obj,
                     "db": self.db,
@@ -116,17 +134,23 @@ class ProcessorService:
                 }
                 # 将任务交给异步执行器，立即返回，不阻塞
                 self.async_runner.submit_task(message_obj, context)
+            else:
+                self.logger.warning(f"[Processor] 消息对象创建失败")
         except Exception as e:
             self.logger.error(f"准备消息并提交给异步执行器时出错: {e}", exc_info=True)
 
     def _get_session_id(self, message: tuple) -> str:
         """获取会话ID"""
-        table_name, msg_with_db = message
+        if not message or len(message) < 2:
+            return "unknown"
+        table_name, msg_with_db = message[0], message[1]
         # 如果是群消息，使用群ID作为会话ID
-        if table_name.startswith("Msg_"):
+        if table_name and table_name.startswith("Msg_"):
             return table_name.replace("Msg_", "")
         # 如果是私聊消息，使用发送者ID作为会话ID
-        return f"private_{msg_with_db[4]}"
+        if msg_with_db and len(msg_with_db) > 4:
+            return f"private_{msg_with_db[4]}"
+        return "unknown"
 
     def _ensure_session_queue(self, session_id: str) -> Queue:
         """确保会话队列存在并返回"""
@@ -168,6 +192,7 @@ class ProcessorService:
             try:
                 message = self.message_queue.get(timeout=1)
                 if message:
+                    self.logger.info(f"[Processor] 收到消息入队: {message[0] if message else 'None'}")
                     # 获取会话ID并将消息放入对应的会话队列
                     session_id = self._get_session_id(message)
                     session_queue = self._ensure_session_queue(session_id)

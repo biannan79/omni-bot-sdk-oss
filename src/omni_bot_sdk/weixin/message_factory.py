@@ -17,6 +17,7 @@ import xmltodict
 import zstandard as zstd
 from google.protobuf.json_format import MessageToDict
 from omni_bot_sdk.models import UserInfo
+from loguru import logger
 
 from .message_classes import *
 from .parser.audio_parser import parser_audio
@@ -946,29 +947,38 @@ class QuoteMessageFactory(MessageFactory):
         )
         info = parser_reply(msg.parsed_content)
 
-        quote_svrid = info.get("svrid", "")
-        chat_user = room.username if room else contact.username
-        quote_message_data = db.get_message_by_server_id(
-            quote_svrid, msg.message_db_path, chat_user
-        )
-
-        if quote_message_data:
-            quote_sender_id = quote_message_data[4]
-            quote_contact = db.get_contact_by_sender_id(
-                quote_sender_id, msg.message_db_path
-            )
-            quote_factory = FACTORY_REGISTRY.get(
-                quote_message_data[2], UnknownMessageFactory()
-            )
-            msg.quote_message = quote_factory.create(
-                quote_message_data, user_info, db, quote_contact, room
-            )
-        else:
-            # [REFACTORED] Changed print to a comment, suggesting logger usage
-            # logger.warning(f"Quoted message not found. svrid: {quote_svrid}, xml: {msg.parsed_content}")
-            msg.quote_message = None
-
+        # 设置回复内容
         msg.content = info.get("text", "")
+
+        # 尝试获取引用的消息
+        quote_svrid = info.get("svrid", "")
+        if quote_svrid:
+            chat_user = room.username if room else contact.username
+            quote_message_data = db.get_message_by_server_id(
+                quote_svrid, msg.message_db_path, chat_user
+            )
+
+            if quote_message_data:
+                quote_sender_id = quote_message_data[4]
+                quote_contact = db.get_contact_by_sender_id(
+                    quote_sender_id, msg.message_db_path
+                )
+                quote_factory = FACTORY_REGISTRY.get(
+                    quote_message_data[2], UnknownMessageFactory()
+                )
+                msg.quote_message = quote_factory.create(
+                    quote_message_data, user_info, db, quote_contact, room
+                )
+            else:
+                # 如果找不到原始消息，使用解析出的信息创建一个简化的引用
+                # 这样至少能显示引用的内容
+                displayname = info.get("displayname", "")
+                refer_text = info.get("refer_text", "")
+                if displayname or refer_text:
+                    # 创建一个简单的文本消息作为引用
+                    msg.quote_message = None  # 暂时设为 None，后续可以优化
+                    logger.debug(f"[Quote] 未找到引用消息 svrid={quote_svrid}, 使用解析内容: {displayname}: {refer_text}")
+
         return msg
 
 

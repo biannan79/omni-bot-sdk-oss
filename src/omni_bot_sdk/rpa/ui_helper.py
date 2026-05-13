@@ -12,7 +12,7 @@ import mss
 import numpy as np
 import pyautogui
 from fuzzywuzzy import process
-from omni_bot_sdk.utils.helpers import get_center_point
+from omni_bot_sdk.utils.helpers import get_center_point, get_runtime_images_path
 from omni_bot_sdk.utils.mouse import human_like_mouse_move
 
 
@@ -161,7 +161,7 @@ class UIInteractionHelper:
             List[Dict]: OCR 结果。
         """
         screenshot = self.controller.image_processor.take_screenshot(
-            region=region, save_path="runtime_images/shot_and_ocr.png"
+            region=region, save_path=get_runtime_images_path("shot_and_ocr.png")
         )
         return self.controller.ocr_processor.process_image(image=screenshot)
 
@@ -179,7 +179,7 @@ class UIInteractionHelper:
         ocr_results = self.find_text_elements(text=text, region=region)
         if ocr_results:
             import pyautogui
-            from omni_bot_sdk.utils.helpers import get_center_point
+            from omni_bot_sdk.utils.helpers import get_center_point, get_runtime_images_path
             from omni_bot_sdk.utils.mouse import human_like_mouse_move
 
             bbox = ocr_results[0].get("pixel_bbox")
@@ -202,7 +202,7 @@ class UIInteractionHelper:
             Tuple[List[Tuple[int, int]], List[Tuple[int, int, int, int]]]: 按钮中心点和区域列表。
         """
         screenshot = self.controller.image_processor.take_screenshot(
-            region=region, save_path="runtime_images/find_areas_by_opencv.png"
+            region=region, save_path=get_runtime_images_path("find_areas_by_opencv.png")
         )
         frame_bgr = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
         hsv_frame = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)

@@ -136,21 +136,59 @@ class Message:
 
     @property
     def is_self(self) -> bool:
-        """判断消息是否来自自己"""
-        if self.contact:
-            return self.user_info.account == self.contact.username
-        else:
-            if (
-                self.local_type == MessageType.System
-                or self.local_type == MessageType.Pat
-            ):
-                # 这里直接拦截感觉不合适，比如邀请人进群，第三方的邀请会被拦截，是否需要放出来？
-                print(f"没有联系人信息，默认是自己的消息: {self.type_name}")
-                return True
-            else:
-                print(f"没有联系人信息，默认不是自己的消息: {self.type_name}")
-                return False
+        """判断消息是否来自自己
 
+        检查顺序（优先级从高到低）：
+        1. real_sender_id == 2 (WeChat 4.0 自己发送的消息)
+        2. contact.username == user_info.account (联系���匹配)
+        3. System/Pat 消息默认为自己发送
+
+        Returns:
+            bool: 是否来自自己
+        """
+        # 第一层：real_sender_id 检查（WeChat 4.0 最可靠）
+        # real_sender_id == 2 表示自己发送的消息
+        print(f"[is_self] real_sender_id={self.real_sender_id}, local_type={self.local_type}, type_name={self.type_name}")
+        if self.real_sender_id is not None and self.real_sender_id == 2:
+            # 【安全检查】如果 contact 存在且不是自己，则可能是数据库错误
+            # 但如果 user_account 为空，跳过安全检查（无法验证）
+            if self.contact and hasattr(self.contact, 'username') and self.contact.username:
+                if hasattr(self, 'user_info') and self.user_info:
+                    user_account = getattr(self.user_info, 'account', '')
+                    # 只有当 user_account 非空时才进行安全检查
+                    if user_account and self.contact.username != user_account:
+                        print(f"[is_self] WARNING: real_sender_id==2 但 contact.username={self.contact.username} != user_account={user_account}，可能是数据库错误，返回 False")
+                        return False
+            print(f"[is_self] real_sender_id==2, 返回 True（自己发送）")
+            return True
+
+        # 第二层：联系人匹配检查
+        # 检查 contact 是否存在以及 contact.username 是否匹配 user_info.account
+        if self.contact and self.contact.username:
+            if hasattr(self, 'user_info') and self.user_info:
+                user_account = getattr(self.user_info, 'account', '')
+                if self.contact.username == user_account:
+                    print(f"[is_self] contact.username={self.contact.username} == user_account={user_account}, 返回 True")
+                    return True
+                else:
+                    print(f"[is_self] contact.username={self.contact.username} != user_account={user_account}, 不是自己")
+            else:
+                print(f"[is_self] 无 user_info，无法比较")
+        else:
+            print(f"[is_self] 无 contact 或 contact.username")
+
+        # 第三层：系统消息和拍一拍消息的默认处理
+        if (
+            self.local_type == MessageType.System
+            or self.local_type == MessageType.Pat
+        ):
+            # 这里直接拦截感觉不合适，比如邀请人进群，第三方的邀请会被拦截，是否需要放出来？
+            print(f"没有联系人信息，默认是自己的消息: {self.type_name}")
+            return True
+
+        # 其他情况：无法确定，默认不是自己发送
+        print(f"没有联系人信息，默认不是自己的消息: {self.type_name}")
+        return False
     @property
     def is_at(self) -> bool:
         if not self.is_chatroom:
@@ -198,15 +236,22 @@ class Message:
                 and self.local_type != MessageType.Pat
                 and self.local_type != MessageType.System
             ):
-                # TODO 群聊文字消息格式：<wxid>:<content>, 开头必须是发送人的id+'：'+换行
-                if message_content and message_content.startswith(
-                    self.contact.username
-                ):
-                    message_content = (
-                        message_content.strip(f"{self.contact.username}:")
-                        .strip("\u2005")
-                        .strip()
-                    )
+                # 群聊文字消息格式：<wxid>:<content> 或 <wxid>:\n<content>
+                # 开头必须是发送人的 wxid
+                if message_content and self.contact and self.contact.username:
+                    wxid = self.contact.username
+                    # 支持多种格式：
+                    # 1. wxid_xxx:消息内容
+                    # 2. wxid_xxx:\n消息内容
+                    # 3. wxid_xxx:\u2005消息内容 (特殊空格)
+                    if message_content.startswith(wxid):
+                        # 移除 wxid 前缀
+                        message_content = message_content[len(wxid):]
+                        # 移除可能的冒号
+                        if message_content.startswith(":"):
+                            message_content = message_content[1:]
+                        # 移除特殊空格和普通空格
+                        message_content = message_content.strip("\u2005").strip()
             self._parsed_content = message_content
         return self._parsed_content
 

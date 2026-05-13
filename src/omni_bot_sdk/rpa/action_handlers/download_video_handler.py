@@ -8,7 +8,7 @@ from omni_bot_sdk.rpa.action_handlers.base_handler import (
     RPAAction,
     RPAActionType,
 )
-from omni_bot_sdk.utils.helpers import get_center_point
+from omni_bot_sdk.utils.helpers import get_center_point, get_runtime_images_path
 from omni_bot_sdk.utils.mouse import human_like_mouse_move
 
 
@@ -63,7 +63,7 @@ class DownloadVideoHandler(BaseActionHandler):
             self.image_processor.draw_boxes_on_screen(
                 screenshot,
                 detections,
-                "runtime_images/download_video.png",
+                get_runtime_images_path("download_video.png"),
             )
             return True
         finally:

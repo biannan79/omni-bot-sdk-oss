@@ -10,7 +10,7 @@ from omni_bot_sdk.rpa.action_handlers.base_handler import (
 from omni_bot_sdk.rpa.action_handlers.mixins.window_operations_mixin import (
     WindowOperationsMixin,
 )
-from omni_bot_sdk.utils.helpers import get_center_point
+from omni_bot_sdk.utils.helpers import get_center_point, get_runtime_images_path
 from omni_bot_sdk.utils.mouse import human_like_mouse_move
 
 
@@ -52,7 +52,7 @@ class PatHandler(WindowOperationsMixin, BaseActionHandler):
                     self.image_processor.draw_boxes_on_screen(
                         self.image_processor.take_screenshot(region=region),
                         parsed_result,
-                        "runtime_images/pat.png",
+                        get_runtime_images_path("pat.png"),
                     )
                     ava = None
                     if len(avatar_positions) > 0:
@@ -111,7 +111,7 @@ class PatHandler(WindowOperationsMixin, BaseActionHandler):
                 self.image_processor.draw_boxes_on_screen(
                     self.image_processor.take_screenshot(region=region),
                     avatar_position,
-                    "runtime_images/pat.png",
+                    get_runtime_images_path("pat.png"),
                 )
             return self.find_and_click_menu_item("拍一拍")
         finally:
