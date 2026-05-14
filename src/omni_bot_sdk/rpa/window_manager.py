@@ -12,7 +12,7 @@ import pyautogui
 import win32gui
 from omni_bot_sdk.rpa.image_processor import ImageProcessor
 from omni_bot_sdk.rpa.ocr_processor import OCRProcessor
-from omni_bot_sdk.utils.helpers import get_center_point, get_runtime_images_path, set_clipboard_text
+from omni_bot_sdk.utils.helpers import get_center_point, set_clipboard_text
 from omni_bot_sdk.utils.mouse import human_like_mouse_move
 from omni_bot_sdk.utils.size_config import suggest_size
 
@@ -216,10 +216,6 @@ class WindowManager:
                     breakPoint.append(i)
                     if len(breakPoint) == 4:
                         break
-        # 安全检查：确保找到足够的断点
-        if len(breakPoint) < 4:
-            self.logger.error(f"像素扫描失败，断点数量不足: {len(breakPoint)}, breakPoint={breakPoint}")
-            return False
         SIDE_BAR_WIDTH = breakPoint[1]
         SESSION_LIST_WIDTH = breakPoint[3] - SIDE_BAR_WIDTH
         # 从 SIDE_BAR_WIDTH + SESSION_LIST_WIDTH + 1 开始，向下匹配，第一个变色就是标题栏的高度，第二个就是消息栏的区域
@@ -569,7 +565,7 @@ class WindowManager:
                 screenshot,
                 all_result,
                 start=(-friend_window.left, -friend_window.top),
-                output_path=get_runtime_images_path("friend_window.png"),
+                output_path="data/runtime_images/friend_window.png",
             )
             return True
         else:
@@ -699,41 +695,24 @@ class WindowManager:
                     self.image_processor.draw_boxes_on_screen(
                         screenshot,
                         result,
-                        get_runtime_images_path("search_contact_result.png"),
+                        "data/runtime_images/search_contact_result.png",
                     )
                     # 对联系人和群聊先找出来，按照Y从小到达排序
-                    # 2026-05-11 fix: 增加对"文件传输助手"等特殊联系人的直接匹配
                     labels = [
                         r
                         for r in result
                         if r.get("label") in ["联系人", "群聊", "功能"]
                     ]
-                    direct_match = False
-                    # 如果没找到标签，尝试直接匹配目标联系人名称
-                    if not labels and target:
-                        # 查找包含目标名称的结果（排除"搜索网络结果"）
-                        direct_matches = [
-                            r for r in result
-                            if target in r.get("label", "") and "搜索网络" not in r.get("label", "")
-                        ]
-                        if direct_matches:
-                            self.logger.info(f"直接匹配到目标联系人: {target}")
-                            labels = direct_matches
-                            direct_match = True
                     if labels:
                         labels.sort(key=lambda x: x.get("pixel_bbox")[1])
                         center_point = get_center_point(
                             labels[0].get("pixel_bbox"),
                             offset=(search_window.left, search_window.top),
                         )
-                        # 直接匹配时，点击中心位置而不是偏移位置
-                        if direct_match:
-                            pyautogui.click(center_point[0], center_point[1])
-                        else:
-                            pyautogui.click(
-                                center_point[0] + self.search_contact_offset[0],
-                                center_point[1] + self.search_contact_offset[1],
-                            )
+                        pyautogui.click(
+                            center_point[0] + self.search_contact_offset[0],
+                            center_point[1] + self.search_contact_offset[1],
+                        )
                         time.sleep(self.action_delay)
                         color = self.image_processor.get_pixel_color(
                             self.SIDE_BAR_WIDTH + self.SESSION_LIST_WIDTH + 10,
@@ -748,7 +727,7 @@ class WindowManager:
                             self.last_switch_session_time = time.time()
                             return True
                     else:
-                        self.logger.error(f"搜索结果中没有找到目标: {target}")
+                        self.logger.error("搜索结果中没有联系人或群聊或功能")
                     try:
                         search_window.close()
                     except Exception as e:

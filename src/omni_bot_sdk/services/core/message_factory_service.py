@@ -25,21 +25,19 @@ class MessageFactoryService:
         self.logger.info(f"消息类型: {MessageType.name(type_)}")
         room = self.db.get_room_by_md5(table_name.replace("Msg_", ""))
         if type_ not in FACTORY_REGISTRY:
-            self.logger.warning(f"未知消息类型: {type_}，使用 UnknownMessageFactory")
             type_ = -1
-
-        # 获取联系人信息
-        sender_id = msg_with_db[4]
-        message_db_path = msg_with_db[17] if len(msg_with_db) > 17 else ""
-
-        # 传递所有参数，包括 table_name 用于 fallback
-        contact = self.db.get_contact_by_sender_id(sender_id, message_db_path, table_name)
-
+        if type_ == -1:
+            self.logger.error(f"该消息类型: {type_} 未找到对应的工厂")
+            return None
+        # 传递 table_name 作为 fallback 参数
+        contact = self.db.get_contact_by_sender_id(msg_with_db[4], msg_with_db[17], table_name)
         if not contact:
-            self.logger.debug(f"未找到联系人: sender_id={sender_id}, table={table_name}, 使用 table fallback")
-            # 尝试直接通过表名查找
-            contact = self.db.get_contact_by_table_md5(table_name.replace("Msg_", ""))
-            # TODO 有些消息是允许没有发送人的？这个时候怎么搞？是不是把他当作系统呢？
+            self.logger.warn(f"未找到联系人: sender_id={msg_with_db[4]}, db={msg_with_db[17]}, table={table_name}")
+            # 如果私聊消息没有联系人，尝试通过表名 MD5 反向查找
+            if not room:
+                contact = self.db.get_contact_by_table_md5(table_name.replace("Msg_", ""))
+                if contact:
+                    self.logger.info(f"通过表名 MD5 反向找到联系人: {contact.username}")
         msg = FACTORY_REGISTRY[type_].create(
             msg_with_db, self.user_info, self.db, contact, room
         )

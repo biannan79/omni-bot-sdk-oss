@@ -758,77 +758,38 @@ def robust_xml_sanitizer(xml_string: str) -> str:
 
 def parser_reply(xml_content):
     """
-    解析引用消息
-
-    @param xml_content: XML 格式的引用消息内容
+    @param data:
     @return: {
-            "text": '回复内容',
-            'svrid': '引用消息的 server_id',
-            'refermsg_type': 引用消息类型,
-            "refer_text": '引用的原始内容',
-            "displayname": '引用消息发送者昵称'
+            "text": '发生错误', 发送内容
+            'svrid': '', 引用消息id
+            'refermsg_type': -1, 引用消息类型
+            "refer_text": '引用错误', 引用内容
         }
     """
     if not xml_content:
         return {
+            # "type": msg_type,
             "text": "发生错误",
             "svrid": "",
             "refermsg_type": -1,
             "refer_text": "引用错误",
-            "displayname": "",
         }
-
     xml_content = robust_xml_sanitizer(xml_content).replace("&#16;", "")
     try:
         try:
             data = xmltodict.parse(xml_content).get("msg", {}).get("appmsg", {})
         except Exception as e:
-            print(f"引用消息 XML 解析失败: {e}")
+            print(e)
             print(xml_content)
-            return {
-                "text": "发生错误",
-                "svrid": "",
-                "refermsg_type": -1,
-                "refer_text": "引用错误",
-                "displayname": "",
-            }
-
+            return None
         refermsg_type = int(data.get("refermsg", {}).get("type", "1"))
         title = data.get("title", "")
         displayname = data.get("refermsg", {}).get("displayname", "")
         svrid = data.get("refermsg", {}).get("svrid", 0)
-        refer_content = data.get("refermsg", {}).get("content", "")
-
-        # 尝试解析引用的内容
-        refer_text = ""
-        if refer_content:
-            try:
-                # 如果引用内容是 XML，尝试提取文本
-                refer_data = xmltodict.parse(refer_content).get("msg", {})
-                if "appmsg" in refer_data:
-                    refer_text = refer_data["appmsg"].get("title", "")
-                elif "location" in refer_data:
-                    # 位置消息
-                    refer_text = refer_data["location"].get("@poiname", "位置分享")
-            except Exception:
-                # 如果不是 XML，直接使用
-                refer_text = refer_content
-
         return {
             "text": title,
             "svrid": svrid,
             "refermsg_type": refermsg_type,
-            "refer_text": refer_text,
-            "displayname": displayname,
-        }
-    except Exception as e:
-        print(f"{xml_content}\n\n引用消息解析错误\n{traceback.format_exc()}")
-        return {
-            "text": "发生错误",
-            "svrid": "",
-            "refermsg_type": -1,
-            "refer_text": "引用错误",
-            "displayname": "",
         }
         # if refermsg_type == 1:
         #     return {

@@ -114,11 +114,9 @@ class PluginManager:
         异步处理消息，依次调用每个插件的 async handle_message 方法。
         支持should_stop机制，遇到插件中断链路时提前终止。
         """
-        self.logger.info(f"[PluginManager] 开始处理消息，插件数: {len(self.plugins)}")
         excute_context = PluginExcuteContext(message, context)
-        for i, plugin in enumerate(self.plugins):
+        for plugin in self.plugins:
             try:
-                self.logger.info(f"[PluginManager] 调用插件 {i+1}/{len(self.plugins)}: {plugin.get_plugin_name()}")
                 await plugin.handle_message(excute_context)
                 self.logger.debug(f"插件 '{plugin.get_plugin_name()}' 处理完成。")
                 if excute_context.should_stop:

@@ -105,26 +105,11 @@ class ProcessorService:
         核心改动：不再直接处理，而是提交给异步执行器。
         """
         try:
-            self.logger.info(f"[Processor] 开始处理消息: table={message[0] if message else 'None'}")
-            # 调试：打印消息结构
-            if message and len(message) >= 2:
-                self.logger.debug(f"[Processor] message[0]={message[0]}, message[1] type={type(message[1])}, len={len(message[1]) if hasattr(message[1], '__len__') else 'N/A'}")
             message_obj = self.message_factory_service.create_message(message)
             if message_obj:
-                # 使用 real_sender_name 或 content 属性
-                sender_name = getattr(message_obj, 'real_sender_name', '') or getattr(message_obj, 'sender_display_name', '')
-                # Handle different message types - some don't have 'content' attribute
-                if hasattr(message_obj, 'content') and message_obj.content:
-                    content_preview = message_obj.content[:50]
-                elif hasattr(message_obj, 'audio_text'):  # AudioMessage
-                    content_preview = f"[语音] {message_obj.audio_text[:30] if message_obj.audio_text else ''}"
-                elif hasattr(message_obj, 'description'):  # EmojiMessage
-                    content_preview = f"[表情] {message_obj.description[:30] if message_obj.description else ''}"
-                elif hasattr(message_obj, 'file_name'):  # FileMessage/ImageMessage
-                    content_preview = f"[文件] {message_obj.file_name[:30] if message_obj.file_name else ''}"
-                else:
-                    content_preview = f"[{message_obj.type_name}]"
-                self.logger.info(f"[Processor] 消息对象创建成功: sender={sender_name}, content={content_preview}")
+                # 推送新消息到 FastAPI（通过 webhook）
+                self._push_new_message_to_webhook(message_obj)
+
                 context = {
                     "message": message_obj,
                     "db": self.db,
@@ -134,23 +119,58 @@ class ProcessorService:
                 }
                 # 将任务交给异步执行器，立即返回，不阻塞
                 self.async_runner.submit_task(message_obj, context)
-            else:
-                self.logger.warning(f"[Processor] 消息对象创建失败")
         except Exception as e:
             self.logger.error(f"准备消息并提交给异步执行器时出错: {e}", exc_info=True)
 
+    def _push_new_message_to_webhook(self, message_obj):
+        """
+        推送新消息到 FastAPI Webhook
+
+        通过 WebSocket 连接 FastAPI，推送事件
+        """
+        try:
+            from omni_bot_sdk.webhook import get_webhook_client
+            import time
+
+            client = get_webhook_client()
+            if not client or not client.is_connected:
+                return  # 未连接，跳过
+
+            # 构建消息数据
+            message_data = {
+                "message_id": f"{message_obj.create_time}_{message_obj.real_sender_id or 0}",
+                "sender": message_obj.contact.username if message_obj.contact else "",
+                "sender_name": message_obj.real_sender_name,
+                "content": message_obj.content or "",
+                "msg_type": message_obj.local_type or 1,
+                "is_self": message_obj.is_self,
+                "timestamp": message_obj.create_time or time.time(),
+                "chatroom": message_obj.room.username if message_obj.room else None
+            }
+
+            # 异步推送（在后台事件循环中）
+            import asyncio
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(client.push_new_message(message_data))
+            except RuntimeError:
+                # 没有运行中的事件循环，跳过
+                pass
+
+        except ImportError:
+            pass  # webhook 模块不可用
+        except Exception as e:
+            self.logger.debug(f"推送消息到 webhook 失败: {e}")
+
     def _get_session_id(self, message: tuple) -> str:
         """获取会话ID"""
-        if not message or len(message) < 2:
-            return "unknown"
-        table_name, msg_with_db = message[0], message[1]
+        table_name, msg_with_db = message
         # 如果是群消息，使用群ID作为会话ID
-        if table_name and table_name.startswith("Msg_"):
+        if table_name.startswith("Msg_"):
             return table_name.replace("Msg_", "")
         # 如果是私聊消息，使用发送者ID作为会话ID
-        if msg_with_db and len(msg_with_db) > 4:
-            return f"private_{msg_with_db[4]}"
-        return "unknown"
+        return f"private_{msg_with_db[4]}"
 
     def _ensure_session_queue(self, session_id: str) -> Queue:
         """确保会话队列存在并返回"""
@@ -192,7 +212,6 @@ class ProcessorService:
             try:
                 message = self.message_queue.get(timeout=1)
                 if message:
-                    self.logger.info(f"[Processor] 收到消息入队: {message[0] if message else 'None'}")
                     # 获取会话ID并将消息放入对应的会话队列
                     session_id = self._get_session_id(message)
                     session_queue = self._ensure_session_queue(session_id)

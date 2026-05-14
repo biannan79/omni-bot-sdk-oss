@@ -540,31 +540,3 @@ def ensure_dir_exists(path: str):
     """
     if not Path(path).exists():
         Path(path).mkdir(parents=True, exist_ok=True)
-
-
-def get_runtime_images_dir() -> Path:
-    """
-    获取 runtime_images 目录的绝对路径。
-    该目录位于 omni_bot_sdk 包的根目录下（与 src 同级）。
-
-    Returns:
-        Path: runtime_images 目录的绝对路径
-    """
-    # 获取 omni_bot_sdk 包的根目录（src 的父目录）
-    package_root = Path(__file__).parent.parent.parent.parent
-    runtime_images_dir = package_root / "runtime_images"
-    ensure_dir_exists(str(runtime_images_dir))
-    return runtime_images_dir
-
-
-def get_runtime_images_path(filename: str) -> str:
-    """
-    获取 runtime_images 目录下文件的完整路径。
-
-    Args:
-        filename (str): 文件名（如 "weixin_status.png"）
-
-    Returns:
-        str: 文件的完整路径
-    """
-    return str(get_runtime_images_dir() / filename)

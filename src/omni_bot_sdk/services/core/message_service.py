@@ -73,36 +73,19 @@ class MessageService:
 
     def _message_loop(self):
         """监听循环"""
-        self.logger.info("[MessageService] 消息监听循环开始")
-        loop_count = 0
         while self.is_running:
             if self.is_paused:
                 time.sleep(1)
                 continue
             try:
-                # 只查询最近30分钟的消息，避免加载大量历史消息
-                message = self.db.check_new_messages(time_window_minutes=30)
-                loop_count += 1
-                if loop_count % 20 == 0:  # 每15秒打印一次心跳
-                    self.logger.debug(f"[MessageService] 心跳检测中... (队列: {self.message_queue.qsize()})")
+                message = self.db.check_new_messages()
                 if message:
                     for msg in message:
-                        # msg = (table_name, (local_id, server_id, local_type, ...))
-                        table_name = msg[0]
-                        row_data = msg[1]
-                        # 从表名提取联系人名称 (Msg_{md5} -> 联系人wxid)
-                        contact_name = table_name.replace("Msg_", "")
-                        # 安全获取消息内容预览
-                        content_preview = ""
-                        if row_data and len(row_data) > 12:
-                            content = row_data[12]  # message_content
-                            if content:
-                                content_preview = str(content)[:50]
                         self.logger.info(
-                            f"[MessageService] 新消息插入队列，来自于 {contact_name} : {content_preview}"
+                            f"新消息插入队列，来自于{Path(msg[1][-1]).name} : {msg[0]}"
                         )
                         self.message_queue.put(msg)
-                    self.logger.info(f"[MessageService] 消息队列大小: {self.message_queue.qsize()}")
+                    self.logger.info(f"消息队列大小: {self.message_queue.qsize()}")
                     # 保存消息到数据库
                     if self.callback:
                         self.callback(message)
@@ -113,7 +96,7 @@ class MessageService:
                 continue
             except Exception as e:
                 if self.is_running:  # 忽略超时异常
-                    self.logger.error(f"[MessageService] 处理消息时出错: {e}")
+                    self.logger.error(f"处理消息时出错: {e}")
                     time.sleep(1)  #
 
     def get_status(self) -> dict:

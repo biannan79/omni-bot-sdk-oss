@@ -15,7 +15,6 @@ import torch
 from PIL import Image, ImageDraw, ImageFont
 from ultralytics import YOLO
 from omni_bot_sdk.yolo.get_model_path import get_model_path
-from omni_bot_sdk.utils.helpers import get_runtime_images_path
 
 
 class ImageProcessor:
@@ -236,10 +235,8 @@ class ImageProcessor:
             font_size (int): 字体大小。
             output_filename (str): 输出文件名。
         Returns:
-            str: 图片文件路径（保存到 runtime_images 目录）。
+            str: 图片文件路径。
         """
-        # 输出到 runtime_images 目录
-        output_path = get_runtime_images_path(output_filename)
         font_paths_to_check = [
             "C:/Windows/Fonts/msyh.ttc",
             "C:/Windows/Fonts/msyhbd.ttc",
@@ -288,5 +285,5 @@ class ImageProcessor:
         )
         text_color = (255, 255, 255)
         draw.text((text_x, text_y), text, font=font, fill=text_color)
-        image.save(output_path)
-        return output_path
+        image.save(output_filename)
+        return output_filename

@@ -2,33 +2,36 @@ import logging
 import queue
 import signal
 import time
-from typing import Any, List, Tuple
+from typing import Any, List, Tuple, TYPE_CHECKING
 import threading
+import asyncio
 
 from omni_bot_sdk.common.queues import message_queue, rpa_task_queue
 
 # 导入所有将被实例化的核心组件类
 from omni_bot_sdk.common.config import Config
-from omni_bot_sdk.mcp.app import create_app
 from omni_bot_sdk.models import UserInfo
 from omni_bot_sdk.plugins.plugin_manager import PluginManager
 from omni_bot_sdk.rpa.action_handlers import SendImageAction
-from omni_bot_sdk.rpa.controller import RPAController
 from omni_bot_sdk.rpa.image_processor import ImageProcessor
 from omni_bot_sdk.rpa.ocr_processor import OCRProcessor
 from omni_bot_sdk.rpa.window_manager import WindowManager
+from omni_bot_sdk.utils.logging_setup import setup_logging
+from omni_bot_sdk.utils.helpers import ensure_dir_exists
+
+# 运行时必需的导入
+from omni_bot_sdk.services.core.user_service import UserService
 from omni_bot_sdk.services.core.database_service import DatabaseService
-from omni_bot_sdk.services.core.message_factory_service import MessageFactoryService
+from omni_bot_sdk.rpa.controller import RPAController
 from omni_bot_sdk.services.core.message_service import MessageService
-from omni_bot_sdk.services.core.mqtt_service import MQTTService
+from omni_bot_sdk.services.core.message_factory_service import MessageFactoryService
 from omni_bot_sdk.services.core.processor_service import ProcessorService
 from omni_bot_sdk.services.core.rpa_service import RPAService
-from omni_bot_sdk.services.core.user_service import UserService
-from omni_bot_sdk.services.functional.dat_decrypt_service import DatDecryptService
-from omni_bot_sdk.services import NewFriendCheckService
+from omni_bot_sdk.services.core.mqtt_service import MQTTService
 from omni_bot_sdk.services.functional.weixin_status_service import WeixinStatusService
-from omni_bot_sdk.utils.logging_setup import setup_logging
-from omni_bot_sdk.utils.helpers import ensure_dir_exists, get_runtime_images_dir
+from omni_bot_sdk.services.functional.dat_decrypt_service import DatDecryptService
+from omni_bot_sdk.services.functional.new_friend_check_service import NewFriendCheckService
+from omni_bot_sdk.mcp.app import create_app
 
 
 class Bot:
@@ -49,7 +52,7 @@ class Bot:
         """
         初始化Bot对象，仅完成依赖注入和对象组装，不执行耗时操作。
         """
-        get_runtime_images_dir()  # 确保 runtime_images 目录存在
+        ensure_dir_exists("data/runtime_images")
         self.config: Config = Config(config_path)
         setup_logging(
             log_dir=self.config.get("logging.path", "logs"),
@@ -66,20 +69,15 @@ class Bot:
         self._status_callbacks = []  # 状态变更回调列表
 
         # 用户服务与用户信息初始化
-        # dbkey 直接从传入的配置文件读取
-        dbkey = self.config.get("dbkey")
-        self.logger.info(f"配置文件 dbkey: {'已设置' if dbkey else '未设置'}")
-        self.user_service: UserService = UserService(dbkey)
+        self.user_service: UserService = UserService(self.config.get("dbkey"))
         self.user_info: UserInfo = self.user_service.get_user_info()
-        # 版本检查 - 放宽限制，只记录警告不退出
-        # WeChat 4.0 的 WeChatAppEx.exe 内部版本号如 2.4.1.19481 也接受
-        allow_versions = ["4.0.6.33", "2.4.1.19481"]
+        allow_versions = ["4.0.6.33"]
         if self.user_info.version not in allow_versions:
-            self.logger.warning(
-                f"当前微信版本 ({self.user_info.version}) 不在官方支持列表中 ({','.join(allow_versions)})，部分功能可能不稳定"
+            self.logger.error(
+                f"当前微信版本不在支持范围内,目前支持的版本包括：{','.join(allow_versions)}"
             )
-            # 不再退出，继续运行
-            # exit(1)
+            self.logger.info("您可以前往：https://github.com/cscnk52/wechat-windows-versions/releases 下载历史版本微信")
+            exit(1)
         # 数据库服务初始化（需最先初始化）
         self.db: DatabaseService = DatabaseService(self.user_service)
         # RPA相关组件初始化
@@ -238,14 +236,7 @@ class Bot:
 
         # 初始化主聊天窗口
         self.logger.info("Initializing main chat window...")
-        max_init_retries = 10
-        init_retry_count = 0
         while not self.window_manager.init_chat_window():
-            init_retry_count += 1
-            if init_retry_count >= max_init_retries:
-                self.logger.error(f"初始化聊天窗口失败，已达到最大重试次数 {max_init_retries}")
-                # 不再阻塞，继续启动其他服务
-                break
             self.logger.warning(
                 "Failed to initialize chat window, retrying in 2 seconds..."
             )
@@ -268,9 +259,76 @@ class Bot:
             self.find_image_aes()
         else:
             self.dat_decrypt_service.setup_lazy()
+
+        # 初始化 FastAPI Webhook 客户端（在状态通知之前）
+        self._init_webhook_client()
+
+        # 注册状态回调，推送微信状态到 FastAPI（在状态通知之前）
+        self.add_status_callback(self._push_wechat_status_callback)
+
+        # 通知状态变更（此时回调已注册，会推送到 FastAPI）
         self.is_running = True
         self._notify_status(self.STATUS_RUNNING)
+
         self.logger.info("--- Bot Setup Complete. All services are running. ---")
+
+    def _push_wechat_status_callback(self, status: str, bot: 'Bot'):
+        """
+        状态回调：推送微信状态到 FastAPI
+
+        当 Bot 状态变更时，通过 webhook 推送到 FastAPI
+        状态会被缓存，在 WebSocket 连接成功后推送
+        """
+        try:
+            from omni_bot_sdk.webhook import get_webhook_client
+
+            client = get_webhook_client()
+            if client:
+                status_message = f"omni-bot 状态: {status}"
+
+                # 设置 Bot 状态缓存（WebSocket 线程会定期检查并推送）
+                client._bot_status = status
+                client._bot_message = status_message
+
+                self.logger.info(f"[Bot] 状态已缓存: {status}")
+        except Exception as e:
+            self.logger.warning(f"推送微信状态失败: {e}")
+
+    def _init_webhook_client(self):
+        """
+        初始化 FastAPI Webhook 客户端
+
+        omni-bot 通过 WebSocket 连接 FastAPI，推送事件
+        """
+        try:
+            # 获取 FastAPI URL 配置
+            fastapi_url = self.config.get("fastapi.url", "ws://127.0.0.1:8000")
+
+            # 尝试导入 webhook 客户端
+            from omni_bot_sdk.webhook import init_webhook_client
+
+            # 在后台线程中启动 webhook 客户端
+            def start_webhook():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    client = init_webhook_client(fastapi_url)
+                    if client:
+                        loop.run_until_complete(client.connect())
+                except Exception as e:
+                    self.logger.warning(f"Webhook 客户端连接失败: {e}")
+                finally:
+                    loop.close()
+
+            # 启动后台线程
+            self._webhook_thread = threading.Thread(target=start_webhook, daemon=True)
+            self._webhook_thread.start()
+            self.logger.info(f"Webhook 客户端已启动，目标: {fastapi_url}")
+
+        except ImportError:
+            self.logger.warning("websockets 未安装，Webhook 客户端不可用")
+        except Exception as e:
+            self.logger.warning(f"Webhook 客户端初始化失败: {e}")
 
     def find_image_aes(self):
         # 给文件助手发图片
@@ -315,7 +373,7 @@ class Bot:
                         f"Error closing {component.__class__.__name__}: {e}",
                         exc_info=True,
                     )
-        if self.mcp_app:
+        if getattr(self, 'mcp_app', None):
             pass
             # self.mcp_app.stop()
         self.is_running = False

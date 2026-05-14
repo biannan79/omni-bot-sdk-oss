@@ -120,19 +120,22 @@ class MQTTService:
             if topic == f"msg/{self.userinfo.account}/rpa_action":
                 payload = msg.get("payload")
                 local_type = payload.get("local_type")
+                correlation_id = payload.get("correlation_id")  # 获取关联ID
                 action = None
                 if local_type == MessageType.Text:
-                    at_list = payload.get("at_list")
+                    at_list = payload.get("at_list", [])
                     if len(at_list) == 0:
                         action = SendTextMessageAction(
                             content=payload.get("message_content"),
                             target=payload.get("nickname"),
+                            correlation_id=correlation_id,
                         )
                     else:
                         action = SendTextMessageAction(
                             content=payload.get("message_content"),
                             target=payload.get("nickname"),
                             at_user_name=at_list[0],
+                            correlation_id=correlation_id,
                         )
                 elif local_type == MessageType.File:
                     file_path = payload.get("file")

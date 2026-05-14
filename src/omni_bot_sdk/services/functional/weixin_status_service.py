@@ -17,7 +17,6 @@ from omni_bot_sdk.rpa.ocr_processor import OCRProcessor
 from omni_bot_sdk.rpa.window_manager import WindowManager, WindowTypeEnum
 from omni_bot_sdk.utils.helpers import (
     get_center_point,
-    get_runtime_images_path,
     send_dingtalk_markdown_notification,
     send_dingtalk_notification,
 )
@@ -101,7 +100,7 @@ class WeixinStatusService:
             ]
 
             screenshot = self.image_processor.take_screenshot(
-                region=region, save_path=get_runtime_images_path("weixin_status.png")
+                region=region, save_path="data/runtime_images/weixin_status.png"
             )
             parser_result = self.ocr_processor.process_image(image=screenshot)
 
@@ -129,7 +128,7 @@ class WeixinStatusService:
 
             # 检查是否存在"进入微信"按钮
             screenshot = self.image_processor.take_screenshot(
-                region=region, save_path=get_runtime_images_path("weixin_status.png")
+                region=region, save_path="data/runtime_images/weixin_status.png"
             )
             parser_result = self.ocr_processor.process_image(image=screenshot)
             parser_result3 = self._calc_similarity("进入微信", parser_result, 0.85)
@@ -148,7 +147,7 @@ class WeixinStatusService:
                 self.logger.warn("找不到进入微信的按钮，可能已经加载了二维码了")
 
             screenshot = self.image_processor.take_screenshot(
-                region=region, save_path=get_runtime_images_path("weixin_status.png")
+                region=region, save_path="data/runtime_images/weixin_status.png"
             )
             parser_result = self.ocr_processor.process_image(image=screenshot)
             parser_result4 = self._calc_similarity("扫码登录", parser_result, 0.85)
@@ -168,7 +167,7 @@ class WeixinStatusService:
                 bucket_name = s3_conf.get("bucket")
                 public_url_prefix = s3_conf.get("public_url_prefix", "")
                 try:
-                    with open(get_runtime_images_path("weixin_status.png"), "rb") as f:
+                    with open("data/runtime_images/weixin_status.png", "rb") as f:
                         s3_client.upload_fileobj(
                             io.BytesIO(f.read()), bucket_name, object_name
                         )

@@ -65,10 +65,7 @@ class AsyncPluginRunner:
     async def _process_and_handle_result(self, message, context: dict):
         """在事件循环线程中实际执行插件处理的协程。"""
         try:
-            self.logger.info(f"[AsyncRunner] 开始调用插件处理消息")
-            self.logger.info(f"[AsyncRunner] 插件管理器中有 {len(self.plugin_manager.plugins)} 个插件")
             responses = await self.plugin_manager.process_message(message, context)
-            self.logger.info(f"[AsyncRunner] 插件处理完成，响应数: {len(responses) if responses else 0}")
             if responses:
                 for response in responses:
                     self.logger.info(

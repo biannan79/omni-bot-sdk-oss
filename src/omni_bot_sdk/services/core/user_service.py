@@ -12,83 +12,24 @@ from omni_bot_sdk.models import UserInfo
 from omni_bot_sdk.utils.fuck_zxl import WeChatDumper
 
 
-def _detect_wechat_data_dir() -> Optional[str]:
-    """
-    自动检测微信 4.0 数据目录 - 选择最近活跃的账号
-
-    微信 4.0 的数据目录结构:
-    - Windows: C:/Users/{username}/xwechat_files/{wxid}_{hash}/
-
-    Returns:
-        数据目录路径 (不含 db_storage)，如果未找到返回 None
-    """
-    # 优先使用主项目 WeChatDecryptor 检测到的目录
-    try:
-        import sys
-        project_root = Path(__file__).parent.parent.parent.parent.parent
-        if str(project_root) not in sys.path:
-            sys.path.insert(0, str(project_root))
-        from src.services.wechat_decryptor import get_decryptor
-        decryptor = get_decryptor()
-        if decryptor and decryptor.db_dir and decryptor.db_dir.exists():
-            # decryptor.db_dir 是 db_storage 目录，需要取父目录
-            account_dir = decryptor.db_dir.parent
-            if account_dir.exists():
-                return str(account_dir)
-    except Exception:
-        pass
-
-    try:
-        user_home = Path.home()
-        xwechat_dir = user_home / "xwechat_files"
-
-        if not xwechat_dir.exists():
-            return None
-
-        # 查找所有账号目录并按 contact.db 修改时间排序
-        account_dirs = []
-        for item in xwechat_dir.iterdir():
-            if item.is_dir() and item.name.startswith("wxid_"):
-                db_storage = item / "db_storage" / "contact" / "contact.db"
-                if db_storage.exists():
-                    account_dirs.append((item, db_storage.stat().st_mtime))
-
-        if not account_dirs:
-            return None
-
-        # 按最后修改时间排序，选择最近活跃的账号
-        account_dirs.sort(key=lambda x: x[1], reverse=True)
-        return str(account_dirs[0][0])
-
-    except Exception:
-        return None
-
-
 class UserService:
     """
     用户服务类。
     管理用户信息和授权信息。
     """
 
-    def __init__(self, dbkey: str = None):
+    def __init__(self, dbkey: str):
         """
         初始化用户服务。
 
         Args:
-            dbkey: 数据库键。如果为空，后续数据库解密会失败。
+            dbkey: 数据库键。
         """
-        self.dbkey = dbkey or ""
+        self.dbkey = dbkey
         self.user_info: UserInfo = None
         self.wxdump = WeChatDumper()
         wechat_info = self.wxdump.find_and_dump()
         if wechat_info:
-            # 如果 WeChatDumper 返回的 data_dir 是 "Unknown"，尝试自动检测
-            data_dir = wechat_info.data_dir
-            if data_dir == "Unknown" or not data_dir:
-                detected_dir = _detect_wechat_data_dir()
-                if detected_dir:
-                    data_dir = detected_dir
-
             self.user_info = UserInfo(
                 pid=wechat_info.pid,
                 version=wechat_info.version,
@@ -96,7 +37,7 @@ class UserService:
                 alias=wechat_info.alias,
                 nickname=wechat_info.nickname,
                 phone=wechat_info.phone,
-                data_dir=data_dir,
+                data_dir=wechat_info.data_dir,
                 dbkey=self.dbkey,
                 raw_keys={},
                 dat_key="",
