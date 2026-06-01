@@ -20,11 +20,21 @@ class InputHandler:
     支持鼠标移动、点击、键盘输入、输入法切换等自动化操作。
     """
 
-    def __init__(self):
+    def __init__(self, human_ops=None):
         """
         初始化 InputHandler。
+        Args:
+            human_ops: 人性化操作实例（可选）。
         """
         self.logger = logging.getLogger(__name__)
+        self.human_ops = human_ops
+
+    def _human_delay(self, base_time: float, variance: float):
+        """人性化延迟，如果 human_ops 可用则使用，否则使用固定延迟。"""
+        if self.human_ops and self.human_ops.enabled:
+            self.human_ops.human_delay(base_time, variance)
+        else:
+            time.sleep(base_time)
 
     def move_mouse(self, x: int, y: int, duration: float = 0.5) -> bool:
         """
@@ -37,7 +47,10 @@ class InputHandler:
             bool: 是否成功。
         """
         try:
-            pyautogui.moveTo(x, y, duration=duration)
+            if self.human_ops and self.human_ops.enabled:
+                self.human_ops.human_move_to(x, y)
+            else:
+                pyautogui.moveTo(x, y, duration=duration)
             return True
         except Exception as e:
             self.logger.error(f"移动鼠标时出错: {str(e)}")
@@ -53,10 +66,13 @@ class InputHandler:
             bool: 是否成功。
         """
         try:
-            if x is not None and y is not None:
-                pyautogui.click(x, y)
+            if self.human_ops and self.human_ops.enabled:
+                self.human_ops.human_click(x, y)
             else:
-                pyautogui.click()
+                if x is not None and y is not None:
+                    pyautogui.click(x, y)
+                else:
+                    pyautogui.click()
             return True
         except Exception as e:
             self.logger.error(f"点击鼠标时出错: {str(e)}")
@@ -72,10 +88,13 @@ class InputHandler:
             bool: 是否成功。
         """
         try:
-            if x is not None and y is not None:
-                pyautogui.rightClick(x, y)
+            if self.human_ops and self.human_ops.enabled:
+                self.human_ops.human_right_click(x, y)
             else:
-                pyautogui.rightClick()
+                if x is not None and y is not None:
+                    pyautogui.rightClick(x, y)
+                else:
+                    pyautogui.rightClick()
             return True
         except Exception as e:
             self.logger.error(f"右键点击时出错: {str(e)}")

@@ -74,5 +74,5 @@ self-msg-plugin = "omni_bot_sdk.plugins.core.self_msg_plugin:SelfMsgPlugin"
 block-empty-room-plugin = "omni_bot_sdk.plugins.core.block_empty_room_plugin:BlockEmptyRoomPlugin"
 image-aes-plugin = "omni_bot_sdk.plugins.core.image_aes_plugin:ImageAesPlugin"
 
-# 自定义插件 - 相亲 Agent 业务插件
-dating-agent-plugin = "src.omni_bot_plugins.dating_agent_plugin:DatingAgentPlugin"
+# 注意：业务插件（dating-agent-plugin）应在主项目 pyproject.toml 中定义
+# 不应在 SDK 中注册，避免重复加载

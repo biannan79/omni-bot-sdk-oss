@@ -312,6 +312,9 @@ def create_app(db: "DatabaseService", user_info: UserInfo, config: dict) -> Fast
         recipient_name: str,
         message: str,
         at_user_name: Optional[str] = None,
+        correlation_id: Optional[str] = None,
+        reply_index: Optional[int] = None,
+        total_replies: Optional[int] = None,
     ) -> str:
         """
         向用户或群组发送文本消息。
@@ -332,6 +335,10 @@ def create_app(db: "DatabaseService", user_info: UserInfo, config: dict) -> Fast
                 return f"错误：在群'{recipient.display_name}'中找不到要@的用户 '{at_user_name}'。"
             at_list.append(at_user.display_name)
 
+        # 记录回复进度日志
+        if reply_index is not None and total_replies is not None:
+            logger.info(f"[Hermes] 回复 {reply_index}/{total_replies} 已提交: {recipient.display_name} <- {message[:30]}")
+
         topic = f"msg/{app_context.userinfo.account}/rpa_action"
         payload = {
             "local_type": MessageType.Text,
@@ -341,6 +348,7 @@ def create_app(db: "DatabaseService", user_info: UserInfo, config: dict) -> Fast
             "at_list": at_list,
             "is_chatroom": is_chatroom,
             "create_time": int(time.time()),
+            "correlation_id": correlation_id,  # 传递关联ID用于发送结果通知
         }
         app_context.command_dispatcher.dispatch(topic, payload)
         return f"消息已成功提交至 '{recipient.display_name}'。"
@@ -437,7 +445,9 @@ def create_app(db: "DatabaseService", user_info: UserInfo, config: dict) -> Fast
         if error:
             return error
         members = app_context.db.get_room_member_list(room.username)
-        return json.dumps([m.to_json() for m in members], ensure_ascii=False, indent=2)
+        # 避免双重JSON编码：先解析to_json()返回的字符串，再统一编码
+        member_dicts = [json.loads(m.to_json()) for m in members]
+        return json.dumps(member_dicts, ensure_ascii=False, indent=2)
 
     @mcp.tool()
     @handle_tool_exceptions
@@ -448,7 +458,9 @@ def create_app(db: "DatabaseService", user_info: UserInfo, config: dict) -> Fast
         """
         app_context = _get_app_context_from_request(ctx)
         contacts = app_context.db.get_contact_by_display_name(query or "")
-        return json.dumps([c.to_json() for c in contacts], ensure_ascii=False, indent=2)
+        # 避免双重JSON编码：先解析to_json()返回的字符串，再统一编码
+        contact_dicts = [json.loads(c.to_json()) for c in contacts]
+        return json.dumps(contact_dicts, ensure_ascii=False, indent=2)
 
     @mcp.tool()
     @handle_tool_exceptions
@@ -655,6 +667,57 @@ def create_app(db: "DatabaseService", user_info: UserInfo, config: dict) -> Fast
         return app_context.command_dispatcher.dispatch_rpa(
             RPAActionType.LEAVE_ROOM.value, {"target": room.display_name}
         )
+
+    @mcp.tool()
+    @handle_tool_exceptions
+    def import_wechat_history(
+        ctx: Context,
+        import_type: str = "incremental",
+        contact_id: Optional[str] = None,
+    ) -> str:
+        """
+        导入微信历史消息到应用数据库。
+
+        Args:
+            import_type: 导入类型
+                - "incremental": 增量导入（从最后一条消息前6小时开始）
+                - "full": 从头导入所有历史消息
+            contact_id: 指定联系人ID，None表示所有联系人
+
+        Returns:
+            导入结果 JSON
+        """
+        from omni_bot_sdk.services.functional.history_import_service import get_import_service, init_import_service
+
+        app_context = _get_app_context_from_request(ctx)
+
+        # 获取或初始化导入服务
+        import_service = get_import_service()
+        if import_service is None:
+            import_service = init_import_service(app_context.db, "data/dating_agent.db")
+
+        # 执行导入
+        if import_type == "full":
+            result = import_service.import_from_beginning(contact_id=contact_id)
+        else:
+            result = import_service.import_incremental(contact_id=contact_id)
+
+        return json.dumps(result, ensure_ascii=False, indent=2)
+
+    @mcp.tool()
+    @handle_tool_exceptions
+    def get_import_progress(ctx: Context) -> str:
+        """
+        获取当前导入任务的进度。
+        """
+        from omni_bot_sdk.services.functional.history_import_service import get_import_service
+
+        import_service = get_import_service()
+        if import_service is None:
+            return json.dumps({"error": "导入服务未初始化"}, ensure_ascii=False)
+
+        progress = import_service.get_import_progress()
+        return json.dumps(progress, ensure_ascii=False, indent=2)
 
     return mcp
 

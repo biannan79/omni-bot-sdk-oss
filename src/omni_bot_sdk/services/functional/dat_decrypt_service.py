@@ -273,11 +273,11 @@ class DatDecryptService:
                     f"在setup期间查找密钥时发生严重错误: {e}", exc_info=True
                 )
                 return
-            if not self.xor_key or not self.aes_key:
+            if self.xor_key is None:
                 self.logger.error("未能找到解密密钥，服务无法启动。")
                 raise RuntimeError("未能找到解密密钥，服务无法启动。")
             self.logger.info("密钥查找和设置完成。")
-            self.config.set("aes_xor_key", f"{self.aes_key.decode()},{self.xor_key}")
+            self.config.set("aes_xor_key", f"{self.aes_key.decode() if self.aes_key else ''},{self.xor_key}")
         self._init_done = True
         self.start_lazy()
 
@@ -424,11 +424,17 @@ class DatDecryptService:
             try:
                 async with aiofiles.open(key_file, "r") as f:
                     content = await f.read()
-                    aes_str, xor_str = content.strip().split(",")
-                    self.xor_key = int(xor_str)
-                    self.aes_key = aes_str.encode()
-                    self.logger.info("从缓存文件成功加载密钥。")
-                    return
+                    parts = content.strip().split(",")
+                    if len(parts) >= 2:
+                        aes_str, xor_str = parts[0], parts[1]
+                    else:
+                        # 兼容旧格式：只有 xor 密钥
+                        aes_str, xor_str = "", parts[0] if parts else ""
+                    self.xor_key = int(xor_str) if xor_str else None
+                    self.aes_key = aes_str.encode() if aes_str else b''
+                    if self.xor_key is not None:
+                        self.logger.info("从缓存文件成功加载密钥。")
+                        return
             except Exception as e:
                 self.logger.warning(f"读取密钥缓存文件失败: {e}，将重新查找。")
 
@@ -444,13 +450,17 @@ class DatDecryptService:
 
         for file_path, _ in dat_files:
             try:
-                aes, xor = await self._loop.run_in_executor(None, find_key, file_path)
-                if aes != -1:
+                # 先读取文件内容，再调用 find_key
+                with open(file_path, 'rb') as f:
+                    file_data = f.read()
+                xor = find_key(file_data)
+                if xor is not None:
                     self.xor_key = xor
-                    self.aes_key = aes
+                    # AES 密钥（微信 4.0 的图片加密使用 XOR，不需要单独的 AES 密钥）
+                    self.aes_key = b''
                     async with aiofiles.open(key_file, "w") as f:
-                        await f.write(f"{aes.decode()},{xor}")
-                    self.logger.info(f"成功找到密钥并已缓存，来源文件: {file_path}")
+                        await f.write(f",{xor}")
+                    self.logger.info(f"成功找到 XOR 密钥并已缓存，来源文件: {file_path}")
                     return
             except Exception as e:
                 self.logger.warning(f"使用文件 {file_path} 解析密钥时出错: {str(e)}")

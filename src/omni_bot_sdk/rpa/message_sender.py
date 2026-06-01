@@ -31,16 +31,18 @@ class MessageSender:
     支持文本消息、@用户、剪贴板图片等自动化发送。
     """
 
-    def __init__(self, window_manager: WindowManager):
+    def __init__(self, window_manager: WindowManager, human_ops=None):
         """
         初始化 MessageSender。
         Args:
             window_manager (WindowManager): 窗口管理器。
+            human_ops: 人性化操作实例（可选）。
         """
         self.logger = logging.getLogger(__name__)
         self.ocr_processor = None
         self.temp_image_path = None
         self.window_manager = window_manager
+        self.human_ops = human_ops
 
     def send_message(self, message: str, clear_input_box: bool = True) -> bool:
         """
@@ -56,23 +58,37 @@ class MessageSender:
                 return False
             if clear_input_box:
                 pyautogui.hotkey("ctrl", "a")
-                time.sleep(0.3)
+                self._human_delay(0.3, 0.1)
                 pyautogui.press("delete")
-                time.sleep(0.3)
+                self._human_delay(0.3, 0.1)
             if not set_clipboard_text(message):
                 return False
             pyautogui.hotkey("ctrl", "v")
-            time.sleep(0.3)
+            self._human_delay(0.3, 0.1)
             send_button = self.window_manager.get_icon_position("send_button")
             if send_button:
                 center = get_center_point(send_button)
-                pyautogui.click(center[0], center[1])
-                time.sleep(0.3)
+                self._human_click(center[0], center[1])
+                self._human_delay(0.3, 0.1)
                 return True
             return False
         except Exception as e:
             self.logger.error(f"发送消息时出错: {str(e)}")
             return False
+
+    def _human_delay(self, base_time: float, variance: float):
+        """人性化延迟，如果 human_ops 可用则使用，否则使用固定延迟。"""
+        if self.human_ops and self.human_ops.enabled:
+            self.human_ops.human_delay(base_time, variance)
+        else:
+            time.sleep(base_time)
+
+    def _human_click(self, x: int, y: int):
+        """人性化点击，如果 human_ops 可用则使用，否则使用原始点击。"""
+        if self.human_ops and self.human_ops.enabled:
+            self.human_ops.human_click(x, y)
+        else:
+            pyautogui.click(x, y)
 
     def _calc_similarity(
         self, search_text: str, formatted_results: List[Dict], score_cutoff: float = 0.6
@@ -127,7 +143,7 @@ class MessageSender:
         """
         self.window_manager.activate_input_box()
         pyautogui.press("@")
-        time.sleep(0.3)
+        self._human_delay(0.3, 0.1)
         at_str = at_str.split(" ")
         at_str = max(at_str, key=len)
         at_str = at_str.strip()
@@ -138,9 +154,9 @@ class MessageSender:
         pyautogui.press("space")
         pyautogui.press("backspace")
         pyautogui.press("backspace")
-        time.sleep(0.3)
+        self._human_delay(0.3, 0.1)
         pyautogui.press("enter")
-        time.sleep(0.3)
+        self._human_delay(0.3, 0.1)
         return True
 
     def clear_input_box(self) -> bool:
@@ -151,7 +167,7 @@ class MessageSender:
         """
         self.window_manager.activate_input_box()
         pyautogui.hotkey("ctrl", "a")
-        time.sleep(0.3)
+        self._human_delay(0.3, 0.1)
         pyautogui.press("backspace")
-        time.sleep(0.3)
+        self._human_delay(0.3, 0.1)
         return True

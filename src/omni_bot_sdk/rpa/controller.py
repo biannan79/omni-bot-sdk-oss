@@ -12,6 +12,7 @@ from threading import Lock
 
 from omni_bot_sdk.services.core.database_service import DatabaseService
 from omni_bot_sdk.rpa.action_handlers import RPAAction, RPAActionType
+from .human_like import HumanLikeConfig, HumanLikeOperations
 from .image_processor import ImageProcessor
 from .input_handler import InputHandler
 from .message_sender import MessageSender
@@ -101,8 +102,16 @@ class RPAController:
         self.window_manager = window_manager
         self.ocr_processor = ocr_processor
         self.image_processor = image_processor
-        self.message_sender = MessageSender(self.window_manager)
-        self.input_handler = InputHandler()
+
+        # 初始化人性化操作模块
+        human_like_config = HumanLikeConfig.from_dict(rpa_config)
+        self.human_ops = HumanLikeOperations(human_like_config)
+
+        # 将 human_ops 注入到子组件
+        self.message_sender = MessageSender(self.window_manager, self.human_ops)
+        self.input_handler = InputHandler(self.human_ops)
+        self.window_manager.human_ops = self.human_ops
+
         self.ui_helper = UIInteractionHelper(self)
         self.action_handlers: Dict[RPAActionType, Any] = {}
         self._register_handlers()
@@ -118,6 +127,7 @@ class RPAController:
         self.logger.info(
             "RPAController 初始化完成，所有处理器已注册，速率限制器已激活。"
         )
+        self.logger.info(f"人性化操作模块已{'启用' if self.human_ops.enabled else '禁用'}")
 
     def _register_handlers(self):
         """
@@ -224,7 +234,11 @@ class RPAController:
                 self.logger.info(f"速率受限，等待 {wait_interval}s 后重试...")
                 time.sleep(wait_interval)
             self.logger.info("速率限制通过，继续发送操作。")
-            time.sleep(random.uniform(0.5, 1.5))
+            # 使用人性化延迟替代固定随机延迟
+            self.human_ops.send_message_delay()
+
+        # 操作前人性化处理
+        self.human_ops.before_action(action.action_type.name)
 
         try:
             self.logger.info(f"执行 RPA 操作: {action.action_type.name}")
@@ -232,6 +246,8 @@ class RPAController:
             self.logger.info(
                 f"RPA 操作完成: {action.action_type.name}, 成功: {success}"
             )
+            # 操作后人性化处理
+            self.human_ops.after_action(action.action_type.name)
             return success
         except Exception as e:
             self.logger.error(

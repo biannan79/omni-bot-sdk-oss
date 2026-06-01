@@ -109,11 +109,27 @@ class WindowManager:
             self.rpa_config.get("search_contact_offset", (0, 40))
         )
         self.color_ranges = self.rpa_config.get("color_ranges", {})
+        # 人性化操作模块（由 RPAController 注入）
+        self.human_ops = None
+
+    def _human_delay(self, base_time: float = None, variance: float = None):
+        """人性化延迟，如果 human_ops 可用则使用，否则使用固定延迟。"""
+        if self.human_ops and self.human_ops.enabled:
+            self.human_ops.human_delay(base_time or self.action_delay, variance or self.action_delay * 0.3)
+        else:
+            time.sleep(base_time or self.action_delay)
+
+    def _human_click(self, x: int, y: int):
+        """人性化点击，如果 human_ops 可用则使用，否则使用原始点击。"""
+        if self.human_ops and self.human_ops.enabled:
+            self.human_ops.human_click(x, y)
+        else:
+            pyautogui.click(x, y)
 
     def activate_input_box(self, offset_x: int = 0) -> bool:
         """
         激活输入框
-        这里的offset时为了处理多个窗口，目前没有使用
+        这里的offset时为了处理多个窗口，目前没有使用vl模型解决
         点击两次是为了处理有可能的存在的侧边栏没有关闭的情况，暂时不使用vl模型解决
         """
         try:
@@ -122,9 +138,9 @@ class WindowManager:
                 return False
 
             send_x, send_y = get_center_point(send_button)
-            pyautogui.click(self.MSG_TOP_X + 50 + offset_x, send_y)
-            time.sleep(self.action_delay)
-            pyautogui.click(self.MSG_TOP_X + 50 + offset_x, send_y)
+            self._human_click(self.MSG_TOP_X + 50 + offset_x, send_y)
+            self._human_delay()
+            self._human_click(self.MSG_TOP_X + 50 + offset_x, send_y)
             return True
 
         except Exception as e:
@@ -294,7 +310,7 @@ class WindowManager:
 
         button_right_x = send_btn_bbox[2] - 3
         button_right_y = send_btn_bbox[3] - 3
-        # 从 button_right_x 向左侧扫描200个像素，第一个变化的像素就是  send_btn_bbox[0]
+        # 从 button_right_x 向左侧扫描200个像素，第一个变化的像素就是 send_btn_bbox[0]
         for i in range(0, 200):
             if (
                 pixels[button_right_x - i, button_right_y]
@@ -302,11 +318,15 @@ class WindowManager:
             ):
                 send_btn_bbox[0] = button_right_x - i
                 break
+
+        # 从 button_right_y 向上扫描200个像素，第一个变化的像素就是 send_btn_bbox[1]
+        for i in range(0, 200):
             if (
                 pixels[button_right_x, button_right_y - i]
                 != pixels[button_right_x, button_right_y - i - 1]
             ):
                 send_btn_bbox[1] = button_right_y - i
+                break
 
         self.logger.info(f"send_btn_bbox: {send_btn_bbox}")
 

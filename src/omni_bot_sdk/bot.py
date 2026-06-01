@@ -305,14 +305,18 @@ class Bot:
             fastapi_url = self.config.get("fastapi.url", "ws://127.0.0.1:8000")
 
             # 尝试导入 webhook 客户端
-            from omni_bot_sdk.webhook import init_webhook_client
+            from omni_bot_sdk.webhook import init_webhook_client, get_webhook_client
+
+            # 在主线程中先创建并注册单例（确保回调能获取到同一实例）
+            client = init_webhook_client(fastapi_url)
 
             # 在后台线程中启动 webhook 客户端
             def start_webhook():
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
-                    client = init_webhook_client(fastapi_url)
+                    # 获取已创建的单例并连接
+                    client = get_webhook_client()
                     if client:
                         loop.run_until_complete(client.connect())
                 except Exception as e:

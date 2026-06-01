@@ -107,8 +107,12 @@ class ProcessorService:
         try:
             message_obj = self.message_factory_service.create_message(message)
             if message_obj:
-                # 推送新消息到 FastAPI（通过 webhook）
-                self._push_new_message_to_webhook(message_obj)
+                # 【修复】只推送非自己的消息到 FastAPI webhook
+                # 自己发送的消息不应该触发 Hermes 回复
+                if not message_obj.is_self:
+                    self._push_new_message_to_webhook(message_obj)
+                else:
+                    self.logger.debug(f"跳过 webhook 推送（自己发送的消息）: local_id={message_obj.local_id}")
 
                 context = {
                     "message": message_obj,

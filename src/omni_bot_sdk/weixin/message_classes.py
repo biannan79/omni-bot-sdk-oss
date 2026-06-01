@@ -137,19 +137,34 @@ class Message:
     @property
     def is_self(self) -> bool:
         """判断消息是否来自自己"""
+        # 【修复】微信 4.0 中 real_sender_id 字段不再可靠（所有消息都是 3）
+        # 改用 contact.username == user_info.account 作为主要判断方式
+
+        # 第一层：通过 contact 判断（最可靠）
+        # 私聊消息：contact 是对方，如果 contact.username == user_info.account 则是自己发的
         if self.contact:
             return self.user_info.account == self.contact.username
+
+        # 第二层：real_sender_id 检查（仅当 contact 不可用时使用）
+        # real_sender_id == 2 表示自己发送的消息（微信界面）
+        # 注意：不再检查 real_sender_id == 3，因为微信 4.0 中所有消息都是 3
+        if self.real_sender_id is not None:
+            try:
+                if int(self.real_sender_id) == 2:
+                    return True
+            except (ValueError, TypeError):
+                pass
+
+        # 第三层：没有 contact 时的默认处理
+        if (
+            self.local_type == MessageType.System
+            or self.local_type == MessageType.Pat
+        ):
+            print(f"没有联系人信息，默认是自己的消息: {self.type_name}")
+            return True
         else:
-            if (
-                self.local_type == MessageType.System
-                or self.local_type == MessageType.Pat
-            ):
-                # 这里直接拦截感觉不合适，比如邀请人进群，第三方的邀请会被拦截，是否需要放出来？
-                print(f"没有联系人信息，默认是自己的消息: {self.type_name}")
-                return True
-            else:
-                print(f"没有联系人信息，默认不是自己的消息: {self.type_name}")
-                return False
+            print(f"没有联系人信息，默认不是自己的消息: {self.type_name}")
+            return False
 
     @property
     def is_at(self) -> bool:
