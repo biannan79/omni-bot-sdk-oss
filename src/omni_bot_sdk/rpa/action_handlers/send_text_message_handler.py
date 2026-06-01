@@ -55,6 +55,14 @@ class SendTextMessageHandler(BaseActionHandler):
         try:
             if not self.window_manager.switch_session(action.target):
                 return False
+
+            # 切换会话后增加额外延迟，确保窗口激活
+            time.sleep(1.0)
+
+            # 激活微信窗口（确保在前台）
+            self.window_manager._activate_window()
+            time.sleep(0.5)
+
             if action.at_user_name:
                 self.controller.message_sender.clear_input_box()
                 self.controller.message_sender.mention_user(action.at_user_name)
